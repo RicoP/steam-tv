@@ -1,0 +1,25 @@
+# Build output
+build
+cmake-build-*
+CMakeFiles
+CMakeCache.txt
+compile_commands.json
+
+# Native binary outputs/libraries if they are intentionally versioned.
+*.so filter=lfs diff=lfs merge=lfs -text
+*.so.* filter=lfs diff=lfs merge=lfs -text
+*.a filter=lfs diff=lfs merge=lfs -text
+*.dll filter=lfs diff=lfs merge=lfs -text
+*.dylib filter=lfs diff=lfs merge=lfs -text
+*.exe filter=lfs diff=lfs merge=lfs -text
+
+
+# Local/editor state
+.vscode
+.idea
+.codex
+
+# CEF binary libraries.
+# CEF Resources are tracked because Chrome .pak files are required at runtime.
+external/cef/Debug
+external/cef/Release

@@ -30,6 +30,18 @@ struct BrowserSurface {
 
 static int g_has_start_url_argument = 0;
 static char g_start_url_argument[4096];
+static const char *BROWSER_SWIZZLE_FRAGMENT_SHADER =
+    "#version 330\n"
+    "in vec2 fragTexCoord;\n"
+    "in vec4 fragColor;\n"
+    "out vec4 finalColor;\n"
+    "uniform sampler2D texture0;\n"
+    "uniform vec4 colDiffuse;\n"
+    "void main()\n"
+    "{\n"
+    "    vec4 bgra = texture(texture0, fragTexCoord);\n"
+    "    finalColor = bgra.bgra*colDiffuse*fragColor;\n"
+    "}\n";
 
 static int format_text(char *buffer, size_t buffer_size, const char *format, ...)
 {
@@ -129,29 +141,14 @@ static void browser_surface_copy_bgra(BrowserSurface *surface,
                                       int width,
                                       int height)
 {
-    const unsigned char *src;
-    unsigned char *dst;
-    int pixel_count;
-    int i;
+    int byte_count;
 
     if (!browser_surface_resize(surface, width, height)) {
         return;
     }
 
-    src = (const unsigned char *)buffer;
-    dst = surface->pixels;
-    pixel_count = width * height;
-
-    for (i = 0; i < pixel_count; ++i) {
-        dst[0] = src[2];
-        dst[1] = src[1];
-        dst[2] = src[0];
-        dst[3] = src[3];
-
-        src += 4;
-        dst += 4;
-    }
-
+    byte_count = width * height * 4;
+    memcpy(surface->pixels, buffer, (size_t)byte_count);
     surface->dirty = 1;
 }
 
@@ -604,6 +601,7 @@ int main(int argc, char **argv)
     char cef_cache_path[4096];
     char cef_log_path[4096];
     Texture2D browser_texture;
+    Shader browser_shader;
     Image blank_image;
     int screen_width;
     int screen_height;
@@ -650,6 +648,15 @@ int main(int argc, char **argv)
     blank_image = GenImageColor(screen_width, screen_height, BLACK);
     browser_texture = LoadTextureFromImage(blank_image);
     UnloadImage(blank_image);
+    browser_shader = LoadShaderFromMemory(0, BROWSER_SWIZZLE_FRAGMENT_SHADER);
+    if (!IsShaderValid(browser_shader)) {
+        printf("failed to load browser swizzle shader\n");
+        UnloadTexture(browser_texture);
+        CloseWindow();
+        CefShutdown();
+        browser_surface_shutdown(&surface);
+        return 1;
+    }
 
     client = new BrowserClient(&surface, screen_width, screen_height);
     window_info.SetAsWindowless(0);
@@ -707,12 +714,14 @@ int main(int argc, char **argv)
         BeginDrawing();
         ClearBackground(BLACK);
 
+        BeginShaderMode(browser_shader);
         DrawTexturePro(browser_texture,
                        Rectangle{0.0f, 0.0f, (float)browser_texture.width, (float)browser_texture.height},
                        Rectangle{0.0f, 0.0f, (float)current_width, (float)current_height},
                        Vector2{0.0f, 0.0f},
                        0.0f,
                        WHITE);
+        EndShaderMode();
 
         {
             float frame_time_ms;
@@ -744,6 +753,7 @@ int main(int argc, char **argv)
     }
 
     client = nullptr;
+    UnloadShader(browser_shader);
     UnloadTexture(browser_texture);
     CloseWindow();
 

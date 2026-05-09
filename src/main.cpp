@@ -19,6 +19,7 @@
 #include "include/internal/cef_logging_internal.h"
 #include "wrapper/cef_helpers.h"
 #include "raylib.h"
+#include "rlgl.h"
 
 struct BrowserSurface {
     int width;
@@ -39,8 +40,8 @@ static const char *BROWSER_SWIZZLE_FRAGMENT_SHADER =
     "uniform vec4 colDiffuse;\n"
     "void main()\n"
     "{\n"
-    "    vec4 bgra = texture(texture0, fragTexCoord);\n"
-    "    finalColor = bgra.bgra*colDiffuse*fragColor;\n"
+    "    vec4 source = texture(texture0, fragTexCoord).bgra*colDiffuse*fragColor;\n"
+    "    finalColor = source;\n"
     "}\n";
 
 static int format_text(char *buffer, size_t buffer_size, const char *format, ...)
@@ -572,6 +573,27 @@ static void send_mouse_state(BrowserSurface *surface)
     }
 }
 
+static void draw_checkerboard_background(int width, int height)
+{
+    int tile_size;
+    int y;
+
+    tile_size = 64;
+
+    for (y = 0; y < height; y += tile_size) {
+        int x;
+
+        for (x = 0; x < width; x += tile_size) {
+            int dark_tile;
+            Color color;
+
+            dark_tile = ((x / tile_size) + (y / tile_size)) & 1;
+            color = dark_tile ? Color{118, 118, 118, 255} : Color{214, 214, 214, 255};
+            DrawRectangle(x, y, tile_size, tile_size, color);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
 
@@ -602,10 +624,12 @@ int main(int argc, char **argv)
     char cef_log_path[4096];
     Texture2D browser_texture;
     Shader browser_shader;
+    Camera3D cube_camera;
     Image blank_image;
     int screen_width;
     int screen_height;
     int cef_ok;
+    float cube_rotation;
 
     exit_code = CefExecuteProcess(main_args, app, 0);
     if (exit_code >= 0) {
@@ -614,6 +638,7 @@ int main(int argc, char **argv)
 
     screen_width = 1280;
     screen_height = 720;
+    cube_rotation = 0.0f;
 
     browser_surface_init(&surface);
     browser_surface_resize(&surface, screen_width, screen_height);
@@ -658,9 +683,15 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    cube_camera.position = Vector3{0.0f, 1.8f, 6.0f};
+    cube_camera.target = Vector3{0.0f, 0.0f, 0.0f};
+    cube_camera.up = Vector3{0.0f, 1.0f, 0.0f};
+    cube_camera.fovy = 45.0f;
+    cube_camera.projection = CAMERA_PERSPECTIVE;
+
     client = new BrowserClient(&surface, screen_width, screen_height);
     window_info.SetAsWindowless(0);
-    browser_settings.background_color = CefColorSetARGB(255, 17, 19, 24);
+    browser_settings.background_color = CefColorSetARGB(0, 0, 0, 0);
 
     if (g_has_start_url_argument) {
         if (!build_browser_url(url, sizeof(url), g_start_url_argument)) {
@@ -691,6 +722,7 @@ int main(int argc, char **argv)
 
         current_width = GetScreenWidth();
         current_height = GetScreenHeight();
+        cube_rotation += GetFrameTime() * 54.0f;
         client->set_size(current_width, current_height);
         send_mouse_state(&surface);
 
@@ -712,8 +744,19 @@ int main(int argc, char **argv)
         }
 
         BeginDrawing();
-        ClearBackground(BLACK);
+        ClearBackground(Color{214, 214, 214, 255});
+        draw_checkerboard_background(current_width, current_height);
 
+        BeginMode3D(cube_camera);
+        rlPushMatrix();
+        rlRotatef(cube_rotation, 0.35f, 1.0f, 0.2f);
+        DrawCube(Vector3{0.0f, 0.0f, 0.0f}, 2.4f, 2.4f, 2.4f, Color{232, 86, 68, 255});
+        DrawCubeWires(Vector3{0.0f, 0.0f, 0.0f}, 2.42f, 2.42f, 2.42f, Color{30, 40, 58, 255});
+        rlPopMatrix();
+        DrawGrid(12, 0.5f);
+        EndMode3D();
+
+        BeginBlendMode(BLEND_ALPHA_PREMULTIPLY);
         BeginShaderMode(browser_shader);
         DrawTexturePro(browser_texture,
                        Rectangle{0.0f, 0.0f, (float)browser_texture.width, (float)browser_texture.height},
@@ -722,6 +765,7 @@ int main(int argc, char **argv)
                        0.0f,
                        WHITE);
         EndShaderMode();
+        EndBlendMode();
 
         {
             float frame_time_ms;
